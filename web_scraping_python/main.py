@@ -3,17 +3,31 @@ import requests
 from datetime import datetime
 import os
 
-site= "https://www.maxima.lt/pasiulymai"
+site = "https://www.maxima.lt/pasiulymai"
 hdr = {'User-Agent': 'Mozilla/5.0'}
 html_text = requests.get(site, headers=hdr).text
 soup = BeautifulSoup(html_text, 'lxml')
 
+def load_categories(filename):
+    with open(filename, 'r', encoding='utf-8') as file:
+        categories = [line.strip() for line in file]
+    return categories
+
 def find():
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = os.path.join('results', f'results_{current_time}.txt')
-    item_cards = soup.find_all('div', class_='card-body offer-card d-flex flex-column')
+    categories_file = 'kategorijos.txt'
+    categories_list = load_categories(categories_file)
+    
+    sections = soup.find_all('section', {'id': lambda x: x and x.startswith('offer_list_multiple')})
 
-    with open(filename, 'w', encoding='utf-8') as file:
+    items = []
+    all_items =  []
+    
+    for section in sections:
+        category = section.find('h2', class_='mb-3 mb-lg-4').text.strip()
+        item_cards = section.find_all('div', class_='card-body offer-card d-flex flex-column')
+        
         for item in item_cards:
             name = item.find('h4', class_='mt-4 text-truncate text-truncate--2').text.replace('\n','').strip()
             discount = item.find('div', class_='discount')
@@ -24,22 +38,52 @@ def find():
                 discount_value = int(''.join(filter(str.isdigit, discount)))
             else:
                 discount = ""
+                discount_value = None
 
             if special is not None:
                 special = special.text.replace('\n', '').strip()
             else:
                 special = ""
-                
+
+            all_items.append({
+                    'name': name,
+                    'discount': discount_value,
+                    'special': special,
+                    'category': category
+                })
+            #filtering
             if "vnt. už" in special:
                 continue
-                
-            if (discount_value is not None and discount_value > 30) or ("vnt." not in special.lower() and special != ""):
-                if discount != "":
-                    file.write(f"{discount_value}%   {name}\n\n")
-        
-                if special != "":
-                    file.write(f"{special}    {name}\n\n")
-                    
             
-find()
+            if (discount_value is not None and discount_value > 30) or ("vnt." not in special.lower() and special != ""):
+                items.append({
+                    'name': name,
+                    'discount': discount_value,
+                    'special': special,
+                    'category': category
+                })
+    
 
+    items.sort(key=lambda x: (x['discount'] is None, x['discount']), reverse=True)
+    write_to_file(items, all_items, filename, categories_list)
+
+def write_to_file(items, all_items, filename, categories_list):
+    with open(filename, 'w', encoding='utf-8') as file:
+        for item in items:
+            if item['discount'] is not None:
+                file.write(f"{item['discount']}%   {item['name']}   {item['category']}\n\n")
+            if item['special'] != "":
+                file.write(f"{item['special']}   {item['name']}   {item['category']}\n\n")
+
+        file.write("\nIŠ PASIRINKTŲ KATEGORIJŲ\n")
+    
+        for c in categories_list:
+            file.write(f"{c}\n")
+            for item in all_items:
+                if item['category'] == c:
+                    if item['discount'] is not None:
+                        file.write(f"{item['discount']}%   {item['name']}\n")
+                    if item['special'] != "":
+                        file.write(f"{item['special']}   {item['name']}\n")
+               
+find()
